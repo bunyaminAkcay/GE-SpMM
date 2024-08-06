@@ -32,8 +32,13 @@ __global__ void CRCSpMMKernel(size_t m, size_t n, int* d_A_rowPtr, int* d_A_colI
     
     /*
         In Algorithm 2 of paper, this for loop doesnt exist.
-        The loop divides columns of result matrix into pieces that is
-        size of BLOCKSIZE.
+        The loop divides columns of result matrix into pieces
+        that is size of BLOCKSIZE.
+
+        For real applications dont use this for loop. The paper
+        offers to check n > 32 ? CRC + CWM : CRC. For n <= 32
+        cases there is no need for this for loop. For n  > 32,
+        CWM can coarse-grained.
     */
     for (int tilePtr = 0; tilePtr < n; tilePtr += BLOCK_SIZE)
     {
@@ -65,7 +70,6 @@ __global__ void CRCSpMMKernel(size_t m, size_t n, int* d_A_rowPtr, int* d_A_colI
         }
         
     }
-    
 }
 
 template<typename T>

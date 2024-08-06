@@ -101,22 +101,22 @@ int main()
     
     printf("Tolerance:\t %.8lf\n", tolerance);
     
-    
+    /*
     printf("\nCsr based SpMM test results\n======================\n");
     
     for(const testMatrix &testMatrix : matrices){
         testSpMM(testMatrix, CsrBasedSpMM, tolerance);
     }
+    */
     
-    
-    
+    /*
     printf("\nCRC SpMM test results\n======================\n");
     
     for(const testMatrix &testMatrix : matrices){
         testSpMM(testMatrix, CRCSpMM, tolerance);
     }
+    */
     
-
     
     printf("\nCRC CWM SpMM test results\n======================\n");
     
@@ -125,8 +125,5 @@ int main()
     }
     
     
-
-    //testSpMM(matrices[4], CRCSpMM, tolerance, true);
-
     return 0;
 }

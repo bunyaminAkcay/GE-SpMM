@@ -1,6 +1,6 @@
 /*
 
-    Coalesced Row Caching Sparse Matrix- Dense Matrix Multiplication
+    Coalesced Row Caching Sparse Matrix - Dense Matrix Multiplication
 
     Reference:
     G. Huang, G. Dai, Y. Wang, and H. Yang, “GE-SpMM: General-Purpose Sparse Matrix-Matrix Multiplication on GPUs for Graph 
@@ -10,9 +10,6 @@
 
 template<typename T, int BLOCK_SIZE>
 __global__ void CRCSpMMKernel(size_t m, size_t n, int* d_A_rowPtr, int* d_A_colIds, T* d_A_values, T* d_B, T* d_C, T alpha, T beta){
-
-
-    
 
     int const warpSize = 32;
 
@@ -25,38 +22,51 @@ __global__ void CRCSpMMKernel(size_t m, size_t n, int* d_A_rowPtr, int* d_A_colI
     int const rowStart = d_A_rowPtr[i];
     int const rowEnd = d_A_rowPtr[i+1];
 
+    /*
+        Size of the smValues and smColIds is BLOCK_SIZE.
+        Actually its size can equal to warpSize, but this
+        requires an __syncthreads() and appropriate changes.
+    */
     __shared__ T smValues[BLOCK_SIZE];
     __shared__ int smColIds[BLOCK_SIZE];
-
-    T result = 0;
     
-    for (int ptr = rowStart; ptr < rowEnd; ptr += warpSize)
+    /*
+        In Algorithm 2 of paper, this for loop doesnt exist.
+        The loop divides columns of result matrix into pieces that is
+        size of BLOCKSIZE.
+    */
+    for (int tilePtr = 0; tilePtr < n; tilePtr += BLOCK_SIZE)
     {
-        if (ptr + laneId < rowEnd)
-        {
-            smColIds[j] = d_A_colIds[ptr + laneId];
-            smValues[j] = d_A_values[ptr + laneId];
-        }
-        __syncwarp();
+        T result = 0;
 
-        for (int kk = 0; kk < warpSize; kk++)
+        for (int ptr = rowStart; ptr < rowEnd; ptr += warpSize)
         {
-            if (ptr + kk < rowEnd)
+            if (ptr + laneId < rowEnd)
             {
-                int k = smColIds[smBase + kk];
-                result += smValues[smBase + kk] * d_B[k * n + j];
-            }            
-        }
-    }
+                smColIds[j] = d_A_colIds[ptr + laneId];
+                smValues[j] = d_A_values[ptr + laneId];
+            }
+            __syncwarp();
 
-    if (j < n)
-    {
-        d_C[i * n + j] = alpha * result + beta * d_C[i * n + j];
+            for (int kk = 0; kk < warpSize; kk++)
+            {
+                if (ptr + kk < rowEnd)
+                {
+                    int k = smColIds[smBase + kk];
+                    result += smValues[smBase + kk] * d_B[k * n + (j + tilePtr)];
+                }            
+            }
+            //__syncthreads(); no need
+        }
+
+        if (j + tilePtr < n)
+        {
+            d_C[i * n + (j + tilePtr)] = alpha * result + beta * d_C[i * n + (j + tilePtr)];
+        }
+        
     }
-    
     
 }
-
 
 template<typename T>
 void CRCSpMM(int* h_A_rowPtr, int* h_A_colIds, T* h_A_values, T* h_B, T* h_C, T* h_D, size_t m, size_t k, size_t n, size_t nnz, T alpha, T beta){
@@ -87,14 +97,11 @@ void CRCSpMM(int* h_A_rowPtr, int* h_A_colIds, T* h_A_values, T* h_B, T* h_C, T*
         return;
     }
 
-    size_t const blockHeight = 16;
+
+    size_t const tileSize = 1;
     size_t const warpSize = 32;
-    //assume that the total number of non-zeros in row i is multiples of warp size
-    //and assume len of row is lower than warp_size * blockHeight
-    //if len of row is bigger than warp_size * blockHeight, result are wrong
-    //this example understand to coalesced row caching
-    //it is not a good option to implement real world problems
-    int const blockSize = warpSize * blockHeight; 
+
+    int const blockSize = warpSize * tileSize; 
     dim3 const dimBlock(blockSize, 1U, 1U);
     dim3 const dimGrid(m, 1U, 1U);
 

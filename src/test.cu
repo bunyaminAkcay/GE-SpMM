@@ -3,6 +3,7 @@
 #include "cuSparseKernels.cuh"
 #include "CsrBasedSpMM.cuh"
 #include "CRCSpMM.cuh"
+#include "CRC-CWM-SpMM.cuh"
 #include <string>
 
 typedef double element_t;
@@ -100,19 +101,32 @@ int main()
     
     printf("Tolerance:\t %.8lf\n", tolerance);
     
+    
     printf("\nCsr based SpMM test results\n======================\n");
     
     for(const testMatrix &testMatrix : matrices){
         testSpMM(testMatrix, CsrBasedSpMM, tolerance);
     }
-
+    
+    
+    
     printf("\nCRC SpMM test results\n======================\n");
     
     for(const testMatrix &testMatrix : matrices){
         testSpMM(testMatrix, CRCSpMM, tolerance);
     }
+    
 
-    //testSpMM(matrices[8], CRCSpMM, tolerance, true);
+    
+    printf("\nCRC CWM SpMM test results\n======================\n");
+    
+    for(const testMatrix &testMatrix : matrices){
+        testSpMM(testMatrix, CRC_CWM_SpMM, tolerance);
+    }
+    
+    
+
+    //testSpMM(matrices[4], CRCSpMM, tolerance, true);
 
     return 0;
 }

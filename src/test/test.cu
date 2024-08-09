@@ -1,9 +1,9 @@
-#include "MatrixParser.h"
-#include "MatrixHelper.h"
-#include "cuSparseKernels.cuh"
-#include "CsrBasedSpMM.cuh"
-#include "CRCSpMM.cuh"
-#include "CRC-CWM-SpMM.cuh"
+#include "../MatrixParser.h"
+#include "../MatrixHelper.h"
+#include "../cuSparseKernels.cuh"
+#include "../CsrBasedSpMM.cuh"
+#include "../CRCSpMM.cuh"
+#include "../CRC-CWM-SpMM.cuh"
 #include <string>
 
 typedef double element_t;
@@ -18,11 +18,12 @@ struct testMatrix
 };
 
 
-testMatrix matrices[] = {testMatrix{"494_bus.mtx", true}, testMatrix{"662_bus.mtx", true}, testMatrix{"1138_bus.mtx", true}, testMatrix{"abb313.mtx", false}, testMatrix{"arc130.mtx", false}, testMatrix{"ash219.mtx", false}, testMatrix{"b1_ss.mtx", false}, testMatrix{"bcspwr04.mtx", true}, testMatrix{"bcsstk01.mtx", true}, testMatrix{"blckhole.mtx", true}, testMatrix{"can_24.mtx", true}, testMatrix{"dwt_607.mtx", true}, testMatrix{"eris1176.mtx", true} };
+testMatrix matrices[] = { testMatrix{"ash219.mtx", false}, testMatrix{"494_bus.mtx", true}, testMatrix{"662_bus.mtx", true}, testMatrix{"abb313.mtx", false}, testMatrix{"1138_bus.mtx", true}, testMatrix{"arc130.mtx", false}, testMatrix{"bcspwr04.mtx", true}, testMatrix{"bcsstk01.mtx", true}, testMatrix{"blckhole.mtx", true}, testMatrix{"can_24.mtx", true}, testMatrix{"dwt_607.mtx", true}, testMatrix{"eris1176.mtx", true} , testMatrix{"b1_ss.mtx", false}};
 
 
 void testSpMM(const testMatrix &testMatrix, KernelType<element_t> kernel,  double tolerance, bool printResult = false){
         
+
         CsrMatrixParser<element_t> csrMatrixParser("matrices/"+testMatrix.fileName, testMatrix.symmetrical);
         //csrMatrixParser.saveSparseMatrixAsPPM3Image("matrixImages/"+testMatrix.fileName);
         
@@ -121,9 +122,12 @@ int main()
     printf("\nCRC CWM SpMM test results\n======================\n");
     
     for(const testMatrix &testMatrix : matrices){
+        cudaDeviceReset();
         testSpMM(testMatrix, CRC_CWM_SpMM, tolerance);
     }
     
+    
+    //testSpMM(matrices[5], CRC_CWM_SpMM, tolerance, true);
     
     return 0;
 }

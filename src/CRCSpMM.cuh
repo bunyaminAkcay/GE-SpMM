@@ -39,6 +39,8 @@ __global__ void CRCSpMMKernel(size_t m, size_t n, int* d_A_rowPtr, int* d_A_colI
         offers to check n > 32 ? CRC + CWM : CRC. For n <= 32
         cases there is no need for this for loop. For n  > 32,
         CWM can coarse-grained.
+
+        Also this for loop can parallelize.
     */
     for (int tilePtr = 0; tilePtr < n; tilePtr += BLOCK_SIZE)
     {

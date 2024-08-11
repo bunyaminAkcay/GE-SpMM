@@ -3,25 +3,27 @@
     Coalesced Row Caching Sparse Matrix - Dense Matrix Multiplication
 
     Reference:
-    G. Huang, G. Dai, Y. Wang, and H. Yang, “GE-SpMM: General-Purpose Sparse Matrix-Matrix Multiplication on GPUs for Graph 
+    G. Huang, G. Dai, Y. Wang, and H. Yang, “GE-SpMM: General-Purpose Sparse Matrix-Matrix Multiplication on GPUs for Graph
     Neural Networks,” IEEE Xplore, Nov. 01, 2020. https://ieeexplore.ieee.org/abstract/document/9355302/ (accessed Sep. 21, 2022).
 
 */
 
-template<typename T, int BLOCK_SIZE>
-__global__ void CRCSpMMKernel(size_t m, size_t n, int* d_A_rowPtr, int* d_A_colIds, T* d_A_values, T* d_B, T* d_C, T alpha, T beta){
+template <typename T, int BLOCK_SIZE>
+__global__ void CRCSpMMKernel(size_t m, size_t n, int *d_A_rowPtr, int *d_A_colIds, T *d_A_values, T *d_B, T *d_C, T alpha, T beta)
+{
 
     int const warpSize = 32;
 
-    int const i = blockIdx.x;   //tb_id
-    int const j = threadIdx.x;  //tid
+    int const i = blockIdx.x;  // tb_id
+    int const j = threadIdx.x; // tid
 
     int const laneId = j % warpSize;
     int const smBase = j - laneId;
 
     int const rowStart = d_A_rowPtr[i];
-    int const rowEnd = d_A_rowPtr[i+1];
+    int const rowEnd = d_A_rowPtr[i + 1];
 
+    int const tilePtr = blockIdx.y * BLOCK_SIZE;
     /*
         Size of the smValues and smColIds is BLOCK_SIZE.
         Actually its size can equal to warpSize, but this
@@ -29,65 +31,50 @@ __global__ void CRCSpMMKernel(size_t m, size_t n, int* d_A_rowPtr, int* d_A_colI
     */
     __shared__ T smValues[BLOCK_SIZE];
     __shared__ int smColIds[BLOCK_SIZE];
-    
-    /*
-        In Algorithm 2 of paper, this for loop doesnt exist.
-        The loop divides columns of result matrix into pieces
-        that is size of BLOCKSIZE.
 
-        For real applications dont use this for loop. The paper
-        offers to check n > 32 ? CRC + CWM : CRC. For n <= 32
-        cases there is no need for this for loop. For n  > 32,
-        CWM can coarse-grained.
+    T result = 0;
 
-        Also this for loop can parallelize.
-    */
-    for (int tilePtr = 0; tilePtr < n; tilePtr += BLOCK_SIZE)
+    for (int ptr = rowStart; ptr < rowEnd; ptr += warpSize)
     {
-        T result = 0;
-
-        for (int ptr = rowStart; ptr < rowEnd; ptr += warpSize)
+        if (ptr + laneId < rowEnd)
         {
-            if (ptr + laneId < rowEnd)
-            {
-                smColIds[j] = d_A_colIds[ptr + laneId];
-                smValues[j] = d_A_values[ptr + laneId];
-            }
-            __syncwarp();
-
-            for (int kk = 0; kk < warpSize; kk++)
-            {
-                if (ptr + kk < rowEnd)
-                {
-                    int k = smColIds[smBase + kk];
-                    result += smValues[smBase + kk] * d_B[k * n + (j + tilePtr)];
-                }            
-            }
-            //__syncthreads(); no need
+            smColIds[j] = d_A_colIds[ptr + laneId];
+            smValues[j] = d_A_values[ptr + laneId];
         }
+        __syncwarp();
 
-        if (j + tilePtr < n)
+        for (int kk = 0; kk < warpSize; kk++)
         {
-            d_C[i * n + (j + tilePtr)] = alpha * result + beta * d_C[i * n + (j + tilePtr)];
+            if (ptr + kk < rowEnd)
+            {
+                int k = smColIds[smBase + kk];
+                result += smValues[smBase + kk] * d_B[k * n + (j + tilePtr)];
+            }
         }
-        
+        //__syncthreads(); no need
+    }
+
+    if (j + tilePtr < n)
+    {
+        d_C[i * n + (j + tilePtr)] = alpha * result + beta * d_C[i * n + (j + tilePtr)];
     }
 }
 
-template<typename T>
-void CRCSpMM(int* h_A_rowPtr, int* h_A_colIds, T* h_A_values, T* h_B, T* h_C, T* h_D, size_t m, size_t k, size_t n, size_t nnz, T alpha, T beta){
+template <typename T>
+void CRCSpMM(int *h_A_rowPtr, int *h_A_colIds, T *h_A_values, T *h_B, T *h_C, T *h_D, size_t m, size_t k, size_t n, size_t nnz, T alpha, T beta)
+{
     T *d_B, *d_C;
     int *d_A_colIds, *d_A_rowPtr;
-    T *d_A_values; 
+    T *d_A_values;
 
+    cudaMalloc((void **)&d_B, k * n * sizeof(T));
+    cudaMalloc((void **)&d_C, m * n * sizeof(T));
+    cudaMalloc((void **)&d_A_colIds, nnz * sizeof(int));
+    cudaMalloc((void **)&d_A_rowPtr, (m + 1) * sizeof(int));
+    cudaMalloc((void **)&d_A_values, nnz * sizeof(T));
 
-    cudaMalloc((void**) &d_B, k * n * sizeof(T));
-    cudaMalloc((void**) &d_C, m * n * sizeof(T));
-    cudaMalloc((void**) &d_A_colIds, nnz * sizeof(int));
-    cudaMalloc((void**) &d_A_rowPtr, (m+1) * sizeof(int));
-    cudaMalloc((void**) &d_A_values, nnz * sizeof(T));
-
-    if (cudaGetLastError() != cudaSuccess) {
+    if (cudaGetLastError() != cudaSuccess)
+    {
         fprintf(stderr, "CUDA memory allocation failed\n");
         return;
     }
@@ -95,21 +82,23 @@ void CRCSpMM(int* h_A_rowPtr, int* h_A_colIds, T* h_A_values, T* h_B, T* h_C, T*
     cudaMemcpy(d_B, h_B, k * n * sizeof(T), cudaMemcpyHostToDevice);
     cudaMemcpy(d_C, h_C, m * n * sizeof(T), cudaMemcpyHostToDevice);
     cudaMemcpy(d_A_colIds, h_A_colIds, nnz * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_A_rowPtr, h_A_rowPtr, (m+1) * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_A_rowPtr, h_A_rowPtr, (m + 1) * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_A_values, h_A_values, nnz * sizeof(T), cudaMemcpyHostToDevice);
 
-    if (cudaGetLastError() != cudaSuccess) {
+    if (cudaGetLastError() != cudaSuccess)
+    {
         fprintf(stderr, "CUDA memory copy failed\n");
         return;
     }
 
-
     size_t const tileSize = 1;
     size_t const warpSize = 32;
 
-    int const blockSize = warpSize * tileSize; 
+    int const blockSize = warpSize * tileSize;
+    int tileCountInRow = (n + blockSize - 1) / blockSize;
+
     dim3 const dimBlock(blockSize, 1U, 1U);
-    dim3 const dimGrid(m, 1U, 1U);
+    dim3 const dimGrid(m, tileCountInRow, 1U);
 
     CRCSpMMKernel<T, blockSize><<<dimGrid, dimBlock>>>(m, n, d_A_rowPtr, d_A_colIds, d_A_values, d_B, d_C, alpha, beta);
 

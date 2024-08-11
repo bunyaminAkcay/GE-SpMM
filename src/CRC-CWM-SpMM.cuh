@@ -22,10 +22,8 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
     int const warpSize = 32;
 
     int const i = blockIdx.x;  // row id
-    
-    int const j = threadIdx.x; // j => [0...32], j == laneid
+    int const j = threadIdx.x; // lane_id
 
- 
     int const tilePtr = blockIdx.y * warpSize * COARSENING_FACTOR;
 
     int const rowStart = d_A_rowPtr[i];
@@ -34,10 +32,9 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
     __shared__ T smValues[32];
     __shared__ int smColIds[32];
 
-
     T results[COARSENING_FACTOR];
 
-    //init results array to zero
+    // init results array to zero
     for (int ri = 0; ri < COARSENING_FACTOR; ri++)
     {
         results[ri] = 0;
@@ -47,10 +44,9 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
     {
         smColIds[j] = d_A_colIds[ptr + j];
         smValues[j] = d_A_values[ptr + j] * (ptr + j < rowEnd);
-    
-        __syncwarp();
 
-        for (int kk = 0; kk < warpSize; kk++)
+        #pragma unroll
+        for (int kk = 0; kk < 32; kk++)
         {
             int k = smColIds[kk];
 
@@ -58,7 +54,7 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
             for (int ri = 0; ri < COARSENING_FACTOR; ri++)
             {
                 int col = tilePtr + (j + ri * warpSize);
-                results[ri] += smValues[kk] * d_B[k * n + col] * ( col < n);
+                results[ri] += smValues[kk] * d_B[k * n + col] * (col < n);
             }
         }
     }
@@ -67,7 +63,7 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
     for (size_t ri = 0; ri < COARSENING_FACTOR; ri++)
     {
         int col = tilePtr + (j + ri * warpSize);
-        
+
         if (col < n)
         {
             d_C[i * n + col] = results[ri];
@@ -82,19 +78,17 @@ void CRC_CWM_SpMM(int *h_A_rowPtr, int *h_A_colIds, T *h_A_values, T *h_B, T *h_
     int *d_A_colIds, *d_A_rowPtr;
     T *d_A_values;
 
-
     int const warpSize = 32;
     int const warpCountInRow = (n + warpSize - 1) / warpSize;
-    
+
     int const coarseningFactor = 4;
 
-    int tileCount = ( warpCountInRow + coarseningFactor - 1) /  coarseningFactor;
+    int tileCount = (warpCountInRow + coarseningFactor - 1) / coarseningFactor;
 
     int const tileSize = warpSize;
 
     dim3 const dimBlock(tileSize, 1U, 1U);
     dim3 const dimGrid(m, tileCount, 1U);
-
 
     cudaMalloc((void **)&d_B, k * n * sizeof(T));
     cudaMalloc((void **)&d_C, m * n * sizeof(T));

@@ -1,8 +1,9 @@
 # Compiler and flags
 NVCC = nvcc
-NVCCFLAGS = -lcusparse
+NVCCFLAGS = -lcusparse -lineinfo
+NVCCFLAGS2 = -lineinfo
 CXX = g++
-CXXFLAGS = -std=c++11
+CXXFLAGS = -std=c++11 -g
 
 # Target executable
 TARGET1 = build/test
@@ -34,18 +35,18 @@ $(TARGET1): $(CU_OBJECTS1) $(CPP_OBJECTS)
 	$(NVCC) $(NVCCFLAGS) -o $@ $^
 
 $(TARGET2): $(CU_OBJECTS_CSR) $(CPP_OBJECTS)
-	$(NVCC) -o $@ $^
+	$(NVCC) $(NVCCFLAGS2) -o $@ $^
 	
 
 $(TARGET3): $(CU_OBJECTS_CRC) $(CPP_OBJECTS)
-	$(NVCC) -o $@ $^
+	$(NVCC) $(NVCCFLAGS2) -o $@ $^
 
 $(TARGET4): $(CU_OBJECTS_CRC_CWM) $(CPP_OBJECTS)
-	$(NVCC) -o $@ $^
+	$(NVCC) $(NVCCFLAGS2) -o $@ $^
 	rm -f $(CU_OBJECTS1) $(CU_OBJECTS_CSR) $(CU_OBJECTS_CRC) $(CU_OBJECTS_CRC_CWM) $(CPP_OBJECTS)
 
 %.o: %.cu
-	$(NVCC) -c $< -o $@
+	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@

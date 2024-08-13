@@ -1,2 +1,3 @@
-./matrixImages/*
-./build/*
+./matrixImages
+./build
+./vscode

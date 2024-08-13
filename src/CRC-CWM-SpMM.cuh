@@ -37,6 +37,7 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
 
         T sums[COARSENING_FACTOR] = {0};
 
+        #pragma unroll
         for (int ci = 0; ci < COARSENING_FACTOR; ci++)
         {
             sums[COARSENING_FACTOR] = static_cast<T>(0);
@@ -59,6 +60,7 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
                 T val = smValues[smOffset + kk];
                 int offset = smColInd[smOffset + kk] + colId;
 
+                #pragma unroll
                 for (int ci = 0; ci < COARSENING_FACTOR; ci++)
                 {
                     int col = colId + 32 * ci;
@@ -70,6 +72,7 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
             }
         }
 
+        #pragma unroll
         for (int ci = 0; ci < COARSENING_FACTOR; ci++)
         {
             int col = colId + 32 * ci;

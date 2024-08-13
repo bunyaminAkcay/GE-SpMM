@@ -48,7 +48,7 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
             if (ptr < rowEnd)
             {
                 smValues[threadId] = d_A_values[ptr];
-                smColInd[threadId] = n * d_A_colIds[ptr];
+                smColInd[threadId] = d_A_colIds[ptr];
             }
             __syncwarp();
             ptr += 32;
@@ -58,7 +58,7 @@ __global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colI
             for (int kk = 0; kk < loopSize; kk++)
             {
                 T val = smValues[smOffset + kk];
-                int offset = smColInd[smOffset + kk] + colId;
+                int offset = n * smColInd[smOffset + kk] + colId;
 
                 #pragma unroll
                 for (int ci = 0; ci < COARSENING_FACTOR; ci++)

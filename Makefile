@@ -1,7 +1,7 @@
 # Compiler and flags
 NVCC = nvcc
-NVCCFLAGS = -lcusparse -lineinfo
-NVCCFLAGS2 = -lineinfo
+NVCCFLAGS = -lcusparse -lineinfo -O3
+NVCCFLAGS2 = -lineinfo -O3
 CXX = g++
 CXXFLAGS = -std=c++11 -g
 
@@ -52,7 +52,7 @@ $(TARGET4): $(CU_OBJECTS_CRC_CWM) $(CPP_OBJECTS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(CU_OBJECTS1) $(CU_OBJECTS_CSR) $(CU_OBJECTS_CRC) $(CU_OBJECTS_CRC_CWM) $(CPP_OBJECTS) $(TARGET1)$(TARGET2)$(TARGET3)$(TARGET4)
+	rm -f $(CU_OBJECTS1) $(CU_OBJECTS_CSR) $(CU_OBJECTS_CRC) $(CU_OBJECTS_CRC_CWM) $(CPP_OBJECTS) $(TARGET1) $(TARGET2) $(TARGET3) $(TARGET4)
 
 # Phony targets
 .PHONY: all clean

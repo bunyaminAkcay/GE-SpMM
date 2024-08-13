@@ -51,10 +51,11 @@ void CsrBasedSpMM(int* h_A_rowPtr, int* h_A_colIds, T* h_A_values, T* h_B, T* h_
         return;
     }
 
-    size_t const blockWidth = 16;
+    size_t const blockWidth = 32;
+    size_t const blockRow = 8;
 
-    dim3 const dimBlock(blockWidth, blockWidth, 1U);
-    dim3 const dimGrid((n + blockWidth -1)/blockWidth, (m + blockWidth -1)/blockWidth, 1U);
+    dim3 const dimBlock(blockWidth, blockRow, 1U);
+    dim3 const dimGrid((n + blockWidth -1)/blockWidth, (m + blockRow -1)/blockRow, 1U);
 
     CsrBasedSpMMKernel<T><<<dimGrid, dimBlock>>>(m, n, d_A_rowPtr, d_A_colIds, d_A_values, d_B, d_C, alpha, beta);
 

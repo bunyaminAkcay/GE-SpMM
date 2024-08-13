@@ -120,6 +120,7 @@ int main()
     printf("\nCRC CWM SpMM test results\n======================\n");
     
     for(const testMatrix &testMatrix : matrices){
+        
         testSpMM(testMatrix, CRC_CWM_SpMM, tolerance);
     }
     

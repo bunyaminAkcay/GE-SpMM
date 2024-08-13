@@ -16,57 +16,67 @@
     can unroll the for loop.
 */
 template <typename T, int COARSENING_FACTOR>
-__global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colIds, T *d_A_values, T *d_B, T *d_C, T alpha, T beta)
+__global__ void CRC_CWM_SpMM_Kernel(int m, int n, int *d_A_rowPtr, int *d_A_colIds, T *d_A_values, T *d_B, T *d_C)
 {
+    extern __shared__ int sharedMemory[];
 
-    int const warpSize = 32;
+    int *smColInd = sharedMemory;
+    T *smValues = (T *)&sharedMemory[blockDim.y * 32];
 
-    int const i = blockIdx.x;  // row id
-    int const j = threadIdx.x; // lane_id
+    int smOffset = threadIdx.y * 32;
+    int threadId = threadIdx.y * 32 + threadIdx.x;
 
-    int const tilePtr = blockIdx.y * warpSize * COARSENING_FACTOR;
+    int rowId = blockDim.y * blockIdx.x + threadIdx.y;
 
-    int const rowStart = d_A_rowPtr[i];
-    int const rowEnd = d_A_rowPtr[i + 1];
-
-    __shared__ T smValues[32];
-    __shared__ int smColIds[32];
-
-    T results[COARSENING_FACTOR];
-
-    // init results array to zero
-    for (int ri = 0; ri < COARSENING_FACTOR; ri++)
+    if (rowId < m)
     {
-        results[ri] = 0;
-    }
+        int colId = blockIdx.y * 32 * COARSENING_FACTOR + threadIdx.x;
+        int rowStart = d_A_rowPtr[rowId];
+        int rowEnd = d_A_rowPtr[rowId + 1];
+        int ptr = rowStart + threadIdx.x;
 
-    for (int ptr = rowStart; ptr < rowEnd; ptr += warpSize)
-    {
-        smColIds[j] = d_A_colIds[ptr + j];
-        smValues[j] = d_A_values[ptr + j] * (ptr + j < rowEnd);
+        T sums[COARSENING_FACTOR] = {0};
 
-        #pragma unroll
-        for (int kk = 0; kk < 32; kk++)
+        for (int ci = 0; ci < COARSENING_FACTOR; ci++)
         {
-            int k = smColIds[kk];
+            sums[COARSENING_FACTOR] = static_cast<T>(0);
+        }
 
-            #pragma unroll
-            for (int ri = 0; ri < COARSENING_FACTOR; ri++)
+        for (int i = rowStart; i < rowEnd; i += 32)
+        {
+            if (ptr < rowEnd)
             {
-                int col = tilePtr + (j + ri * warpSize);
-                results[ri] += smValues[kk] * d_B[k * n + col] * (col < n);
+                smValues[threadId] = d_A_values[ptr];
+                smColInd[threadId] = n * d_A_colIds[ptr];
+            }
+            __syncwarp();
+            ptr += 32;
+
+            int loopSize = min(32, rowEnd - i);
+
+            for (int kk = 0; kk < loopSize; kk++)
+            {
+                T val = smValues[smOffset + kk];
+                int offset = smColInd[smOffset + kk] + colId;
+
+                for (int ci = 0; ci < COARSENING_FACTOR; ci++)
+                {
+                    int col = colId + 32 * ci;
+                    if (col < n)
+                    {
+                        sums[ci] += val * d_B[offset + 32 * ci];
+                    }
+                }
             }
         }
-    }
 
-    #pragma unroll
-    for (size_t ri = 0; ri < COARSENING_FACTOR; ri++)
-    {
-        int col = tilePtr + (j + ri * warpSize);
-
-        if (col < n)
+        for (int ci = 0; ci < COARSENING_FACTOR; ci++)
         {
-            d_C[i * n + col] = results[ri];
+            int col = colId + 32 * ci;
+            if (col < n)
+            {
+                d_C[rowId * n + col] = sums[ci];
+            }
         }
     }
 }
@@ -78,17 +88,16 @@ void CRC_CWM_SpMM(int *h_A_rowPtr, int *h_A_colIds, T *h_A_values, T *h_B, T *h_
     int *d_A_colIds, *d_A_rowPtr;
     T *d_A_values;
 
-    int const warpSize = 32;
-    int const warpCountInRow = (n + warpSize - 1) / warpSize;
-
     int const coarseningFactor = 4;
 
-    int tileCount = (warpCountInRow + coarseningFactor - 1) / coarseningFactor;
+    size_t const warpSize = 32;
 
-    int const tileSize = warpSize;
+    size_t const blockWidth = warpSize;
+    size_t const blockRow = 8;
 
-    dim3 const dimBlock(tileSize, 1U, 1U);
-    dim3 const dimGrid(m, tileCount, 1U);
+    dim3 const dimBlock(blockWidth, blockRow, 1U);
+    dim3 const dimGrid((m + blockRow - 1) / blockRow, (n + (blockWidth * coarseningFactor) - 1) / (blockWidth * coarseningFactor), 1U);
+    int sharedMemorySize = 32 * blockRow * (sizeof(int) + sizeof(T));
 
     cudaMalloc((void **)&d_B, k * n * sizeof(T));
     cudaMalloc((void **)&d_C, m * n * sizeof(T));
@@ -114,7 +123,7 @@ void CRC_CWM_SpMM(int *h_A_rowPtr, int *h_A_colIds, T *h_A_values, T *h_B, T *h_
         goto cleanup;
     }
 
-    CRC_CWM_SpMM_Kernel<T, coarseningFactor><<<dimGrid, dimBlock>>>(m, n, d_A_rowPtr, d_A_colIds, d_A_values, d_B, d_C, alpha, beta);
+    CRC_CWM_SpMM_Kernel<T, coarseningFactor><<<dimGrid, dimBlock, sharedMemorySize, 0>>>(m, n, d_A_rowPtr, d_A_colIds, d_A_values, d_B, d_C);
 
     cudaMemcpy(h_D, d_C, m * n * sizeof(T), cudaMemcpyDeviceToHost);
 

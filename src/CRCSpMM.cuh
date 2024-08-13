@@ -8,55 +8,54 @@
 
 */
 
-template <typename T, int BLOCK_SIZE>
-__global__ void CRCSpMMKernel(size_t m, size_t n, int *d_A_rowPtr, int *d_A_colIds, T *d_A_values, T *d_B, T *d_C, T alpha, T beta)
+template <typename T>
+__global__ void CRCSpMMKernel(size_t m, size_t n, int *d_A_rowPtr, int *d_A_colIds, T *d_A_values, T *d_B, T *d_C)
 {
+    extern __shared__ int sharedMemory[];
 
-    int const warpSize = 32;
+    int *smColInd = sharedMemory;
+    T *smValues = (T *)&sharedMemory[blockDim.y * 32];
 
-    int const i = blockIdx.x;  // tb_id
-    int const j = threadIdx.x; // tid
+    int smOffset = threadIdx.y * 32;
+    int threadId = threadIdx.y * 32 + threadIdx.x;
 
-    int const laneId = j % warpSize;
-    int const smBase = j - laneId;
+    int rowId = blockDim.y * blockIdx.x + threadIdx.y;
 
-    int const rowStart = d_A_rowPtr[i];
-    int const rowEnd = d_A_rowPtr[i + 1];
-
-    int const tilePtr = blockIdx.y * BLOCK_SIZE;
-    /*
-        Size of the smValues and smColIds is BLOCK_SIZE.
-        Actually its size can equal to warpSize, but this
-        requires an __syncthreads() and appropriate changes.
-    */
-    __shared__ T smValues[BLOCK_SIZE];
-    __shared__ int smColIds[BLOCK_SIZE];
-
-    T result = 0;
-
-    for (int ptr = rowStart; ptr < rowEnd; ptr += warpSize)
+    if (rowId < m)
     {
-        if (ptr + laneId < rowEnd)
-        {
-            smColIds[j] = d_A_colIds[ptr + laneId];
-            smValues[j] = d_A_values[ptr + laneId];
-        }
-        __syncwarp();
+        int colId = blockIdx.y * 32 + threadIdx.x;
+        int rowStart = d_A_rowPtr[rowId];
+        int rowEnd = d_A_rowPtr[rowId + 1];
+        int ptr = rowStart + threadIdx.x;
+        int offset;
+        T sum = 0;
 
-        for (int kk = 0; kk < warpSize; kk++)
+        for (int i = rowStart; i < rowEnd; i += 32)
         {
-            if (ptr + kk < rowEnd)
+            if (ptr < rowEnd)
             {
-                int k = smColIds[smBase + kk];
-                result += smValues[smBase + kk] * d_B[k * n + (j + tilePtr)];
+                smValues[threadId] = d_A_values[ptr];
+                smColInd[threadId] = d_A_colIds[ptr];
+            }
+            __syncwarp();
+            
+            ptr += 32;
+
+            int loopSize = min(32, rowEnd - i);
+
+            for (int kk = 0; kk < loopSize; kk++)
+            {
+                offset = n * smColInd[smOffset + kk] + colId;
+                if (colId < n)
+                {
+                    sum += smValues[smOffset + kk] * d_B[offset];
+                }
             }
         }
-        //__syncthreads(); no need
-    }
-
-    if (j + tilePtr < n)
-    {
-        d_C[i * n + (j + tilePtr)] = alpha * result + beta * d_C[i * n + (j + tilePtr)];
+        if (colId < n)
+        {
+            d_C[rowId * n + colId] = sum;
+        }
     }
 }
 
@@ -91,16 +90,17 @@ void CRCSpMM(int *h_A_rowPtr, int *h_A_colIds, T *h_A_values, T *h_B, T *h_C, T 
         return;
     }
 
-    size_t const tileSize = 1;
     size_t const warpSize = 32;
 
-    int const blockSize = warpSize * tileSize;
-    int tileCountInRow = (n + blockSize - 1) / blockSize;
+    size_t const blockWidth = warpSize;
+    size_t const blockRow = 8;
 
-    dim3 const dimBlock(blockSize, 1U, 1U);
-    dim3 const dimGrid(m, tileCountInRow, 1U);
+    dim3 const dimBlock(blockWidth, blockRow, 1U);
+    dim3 const dimGrid((m + blockRow - 1) / blockRow, (n + blockWidth - 1) / blockWidth, 1U);
 
-    CRCSpMMKernel<T, blockSize><<<dimGrid, dimBlock>>>(m, n, d_A_rowPtr, d_A_colIds, d_A_values, d_B, d_C, alpha, beta);
+    size_t sharedMemorySize = 32 * blockRow * (sizeof(int) + sizeof(T));
+
+    CRCSpMMKernel<T><<<dimGrid, dimBlock, sharedMemorySize, 0>>>(m, n, d_A_rowPtr, d_A_colIds, d_A_values, d_B, d_C);
 
     cudaMemcpy(h_D, d_C, m * n * sizeof(T), cudaMemcpyDeviceToHost);
 

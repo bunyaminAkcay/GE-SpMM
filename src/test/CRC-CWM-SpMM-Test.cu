@@ -10,7 +10,7 @@ typedef double element_t;
 int main()
 {
     bool printResult = false;
-    CsrMatrixParser<element_t> csrMatrixParser("matrices/1138_bus.mtx", true);
+    CsrMatrixParser<element_t> csrMatrixParser("matrices/blckhole.mtx", true);
     
     size_t m = csrMatrixParser.getRowCount();
     size_t k = csrMatrixParser.getColCount();
